@@ -24,7 +24,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'File and model name are required' }, { status: 400 })
     }
 
-    // Check file type
+    
     if (file.type !== 'application/pdf') {
       return NextResponse.json({ error: 'Only PDF files are currently supported' }, { status: 400 })
     }
