@@ -30,7 +30,7 @@ export async function POST(request) {
     }
 
     
-
+    
     // Create a new index for the model if it doesn't exist
     const indexName = `rag-model-${modelName.toLowerCase().replace(/\s+/g, '-')}`
     const indexList = await pinecone.listIndexes()
@@ -53,6 +53,7 @@ export async function POST(request) {
     }
 
     
+    
     // For PDF files, we need to use pdf-parse
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
@@ -66,6 +67,9 @@ export async function POST(request) {
         const text = decodeURIComponent(pdfData.Pages.map(page => 
           page.Texts.map(text => text.R.map(r => r.T).join('')).join(' ')
         ).join('\n'))
+          .replace(/[^\w\s.,!?-]/g, '') // Remove special characters except basic punctuation
+          .replace(/\s+/g, ' ')         // Replace multiple spaces with single space
+          .trim()                       // Remove leading/trailing whitespace
         resolve(text)
       })
       
@@ -73,10 +77,9 @@ export async function POST(request) {
       pdfParser.parseBuffer(buffer)
     })
 
-    console.log(text)
-
     
-    /*
+    
+    
     // Create docs array with extracted text
     const docs = [{
       pageContent: text,
@@ -144,10 +147,7 @@ export async function POST(request) {
       apiKey: model.apiKey
     })
 
-    */
-
-    return NextResponse.json(text)
-      
+          
     
   } catch (error) {
     console.error('Error processing file:', error)
