@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import { Pinecone } from '@pinecone-database/pinecone'
-import { ChatAnthropic } from 'langchain/chat_models/anthropic'
 import { prisma } from '@/lib/prisma'
 import axios from 'axios'
 
