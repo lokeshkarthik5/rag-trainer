@@ -1,5 +1,5 @@
-import { FileUpload } from '@/components/file-upload'
-import { ModelList } from '@/components/models'
+import  FileUpload  from '@/components/file-upload'
+import  ModelList  from '@/components/models'
 
 export default function Home() {
   return (

@@ -7,9 +7,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 
-export function FileUpload() {
+const FileUpload = () => {
 
-    const { toast } = useToast()
+  const { toast } = useToast()
   const [file, setFile] = useState(null)
   const [modelName, setModelName] = useState('')
   const [selectedLlm, setSelectedLlm] = useState('llama-3.1')
@@ -93,4 +93,6 @@ export function FileUpload() {
     </form>
   )
 }
+
+export default FileUpload
 

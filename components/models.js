@@ -14,7 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
-export function ModelList() {
+const ModelList = () => {
 
   const { toast } = useToast()
   const [models, setModels] = useState([])
@@ -127,3 +127,4 @@ export function ModelList() {
   )
 }
 
+export default ModelList

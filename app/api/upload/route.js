@@ -3,17 +3,21 @@ import { Pinecone } from '@pinecone-database/pinecone'
 import crypto from 'crypto'
 import { prisma } from '@/lib/prisma'
 
-import {pdfParse} from 'pdf-parse';
+import PDFParser from 'pdf2json'
+
 const pinecone = new Pinecone({
   apiKey: process.env.PINECONE_API_KEY,
-  
 })
+
+  
 
 export async function POST(request) {
   try {
     const formData = await request.formData()
     const file = formData.get('file')
     const modelName = formData.get('modelName')
+  
+  
     const llmModel = formData.get('llmModel')
 
     if (!file || !modelName) {
@@ -21,9 +25,11 @@ export async function POST(request) {
     }
 
     // Check file type
-    if (!file.type === 'application/pdf') {
+    if (file.type !== 'application/pdf') {
       return NextResponse.json({ error: 'Only PDF files are currently supported' }, { status: 400 })
     }
+
+    
 
     // Create a new index for the model if it doesn't exist
     const indexName = `rag-model-${modelName.toLowerCase().replace(/\s+/g, '-')}`
@@ -46,15 +52,31 @@ export async function POST(request) {
       })
     }
 
+    
     // For PDF files, we need to use pdf-parse
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
     
     // Use pdf-parse to extract text
 
-    const pdfData = await pdfParse(buffer)
-    const text = pdfData.text
+    const pdfParser = new PDFParser()
     
+    const text = await new Promise((resolve, reject) => {
+      pdfParser.on('pdfParser_dataReady', (pdfData) => {
+        const text = decodeURIComponent(pdfData.Pages.map(page => 
+          page.Texts.map(text => text.R.map(r => r.T).join('')).join(' ')
+        ).join('\n'))
+        resolve(text)
+      })
+      
+      pdfParser.on('pdfParser_dataError', reject)
+      pdfParser.parseBuffer(buffer)
+    })
+
+    console.log(text)
+
+    
+    /*
     // Create docs array with extracted text
     const docs = [{
       pageContent: text,
@@ -121,6 +143,12 @@ export async function POST(request) {
       modelName: model.name,
       apiKey: model.apiKey
     })
+
+    */
+
+    return NextResponse.json(text)
+      
+    
   } catch (error) {
     console.error('Error processing file:', error)
     return NextResponse.json({ error: 'Failed to process file' }, { status: 500 })
