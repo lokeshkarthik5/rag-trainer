@@ -67,9 +67,9 @@ export async function POST(request) {
         const text = decodeURIComponent(pdfData.Pages.map(page => 
           page.Texts.map(text => text.R.map(r => r.T).join('')).join(' ')
         ).join('\n'))
-          .replace(/[^\w\s.,!?-]/g, '') // Remove special characters except basic punctuation
-          .replace(/\s+/g, ' ')         // Replace multiple spaces with single space
-          .trim()                       // Remove leading/trailing whitespace
+          .replace(/[^\w\s.,!?-]/g, '') 
+          .replace(/\s+/g, ' ')         
+          .trim()                       
         resolve(text)
       })
       

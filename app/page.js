@@ -18,15 +18,7 @@ export default function Home() {
           <ModelList />
         </div>
       </div>
-      <div className="mt-8">
-        <h2 className="text-xl font-semibold mb-2">Setup Instructions</h2>
-        <ol className="list-decimal list-inside space-y-2">
-          <li>Install dependencies: <code>npm install</code></li>
-          <li>Set up your PostgreSQL database and update the <code>DATABASE_URL</code> in your <code>.env</code> file</li>
-          <li>Run Prisma migrations: <code>npx prisma migrate dev</code></li>
-          <li>Start the development server: <code>npm run dev</code></li>
-        </ol>
-      </div>
+      
     </div>
   )
 }

@@ -2,11 +2,15 @@ import { NextResponse } from 'next/server'
 import { Pinecone } from '@pinecone-database/pinecone'
 import { ChatAnthropic } from 'langchain/chat_models/anthropic'
 import { prisma } from '@/lib/prisma'
+import axios from 'axios'
 
 const pinecone = new Pinecone({
   apiKey: process.env.PINECONE_API_KEY,
   environment: process.env.PINECONE_ENVIRONMENT,
 })
+
+const url = 'https://api.sambanova.ai/v1/chat/completions';
+
 
 export async function POST(request, { params }) {
   try {
@@ -45,19 +49,28 @@ export async function POST(request, { params }) {
       metadata: match.metadata,
     }))
 
-    // Create Anthropic chat model
-    const chatModel = new ChatAnthropic({
-      modelName: model.llmModel === 'llama-3.1' ? 'claude-2' : 'claude-2.1', // Map Llama models to Claude models
-      temperature: 0,
-      anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-    })
 
-    // Generate response using Anthropic
-    const response = await chatModel.call([
-      { role: 'system', content: 'You are a helpful AI assistant. Use the provided context to answer the user\'s question.' },
-      { role: 'human', content: `Context: ${sourceDocuments.map(doc => doc.pageContent).join('\n\n')}\n\nHuman: ${message}` },
-    ])
+    const payload = {
+        stream: false, // Change to true if you want streaming responses
+        model: modelName,
+        messages: [
+            {
+                role: 'system',
+                content: 'You are a helpful AI assistant. Use the provided context to answer the user\'s question.'
+            },
+            {
+                role: 'user',
+                content: `Context: ${sourceDocuments.map(doc => doc.pageContent).join('\n\n')}\n\nHuman: ${message}`
+            }
+        ]
+    };
 
+    const response = await axios.post('https://api.sambanova.ai/v1/chat/completions', payload, {
+      headers: {
+          'Authorization': `Bearer ${process.env.SAMBA_API}`,
+          'Content-Type': 'application/json'
+        }
+      })
     return NextResponse.json({ answer: response.content })
   } catch (error) {
     console.error('Error querying model:', error)
