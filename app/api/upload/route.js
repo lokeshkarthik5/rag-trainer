@@ -58,7 +58,6 @@ export async function POST(request) {
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
     
-    // Use pdf-parse to extract text
 
     const pdfParser = new PDFParser()
     

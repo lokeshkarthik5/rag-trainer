@@ -2,10 +2,14 @@ import { NextResponse } from 'next/server'
 import { Pinecone } from '@pinecone-database/pinecone'
 import { prisma } from '@/lib/prisma'
 import axios from 'axios'
+import { PineconeStore } from "langchain/vectorstores/pinecone";
+import { createRetrievalChain } from "langchain/chains/retrieval";
+import { createStuffDocumentsChain } from "langchain/chains/combine_documents";
+
 
 const pinecone = new Pinecone({
   apiKey: process.env.PINECONE_API_KEY,
-  environment: process.env.PINECONE_ENVIRONMENT,
+  
 })
 
 const url = 'https://api.sambanova.ai/v1/chat/completions';

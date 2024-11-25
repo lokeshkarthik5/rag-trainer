@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
+    "@langchain/core": "^0.3.18",
     "@pinecone-database/pinecone": "^4.0.0",
     "@prisma/client": "^5.22.0",
     "@radix-ui/react-label": "^2.1.0",
