@@ -1,17 +1,16 @@
 import { NextResponse } from 'next/server'
 import { Pinecone } from '@pinecone-database/pinecone'
 import { prisma } from '@/lib/prisma'
-import axios from 'axios'
-import { PineconeStore } from "langchain/vectorstores/pinecone";
-import { createRetrievalChain } from "langchain/chains/retrieval";
-import { createStuffDocumentsChain } from "langchain/chains/combine_documents";
-import { SambanovaLLM } from '@/utils/SambanovaLLM';
-
+import { SambanovaLLM } from '@/utils/SambanovaLLM'
+import { PromptTemplate } from "@langchain/core/prompts"
+import { RunnableSequence } from "@langchain/core/runnables"
+import { StringOutputParser } from "@langchain/core/output_parsers"
 
 const pinecone = new Pinecone({
   apiKey: process.env.PINECONE_API_KEY,
   
 })
+
 const RESPONSE_SYSTEM_TEMPLATE = `You are a helpful AI assistant. Your task is to answer questions based on the provided context.
 Follow these guidelines:
 - If the answer is in the context, provide it clearly and concisely
@@ -24,40 +23,12 @@ Context:
 
 Question: {question}
 
-Answer: `;
+Answer: `
 
-// Create the main retrieval chain function
-async function createCustomRetrievalChain(llm, vectorStore) {
-  // Create the prompt template for combining documents
-  const prompt = PromptTemplate.fromTemplate(RESPONSE_SYSTEM_TEMPLATE);
-
-  // Create a chain for combining documents with the prompt
-  const documentChain = await createStuffDocumentsChain({
-    llm,
-    prompt,
-    documentPrompt: PromptTemplate.fromTemplate("{pageContent}"),
-  });
-
-  // Create the retrieval chain
-  return await createRetrievalChain({
-    combineDocsChain: documentChain,
-    retriever: vectorStore.asRetriever({
-      searchKwargs: { k: 3 },
-      callbacks: [{
-        handleRetrieval: (documents) => {
-          console.log(`Retrieved ${documents.length} documents`);
-        }
-      }]
-    }),
-  });
-}
-
-
-export async function POST(request, { params }) {
+export async function POST(request, { params: { modelName } }) {
   try {
     const { message } = await request.json()
     const apiKey = request.headers.get('x-api-key')
-    const modelName = params.modelName
 
     if (!message) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 })
@@ -74,50 +45,104 @@ export async function POST(request, { params }) {
 
     const index = pinecone.Index(model.indexName)
 
-    // Create embedding for the query
-    const queryEmbedding = await pinecone.inference.embed(
-      'multilingual-e5-large',
-      [message],
-      { inputType: 'passage', truncate: 'END' }
-    )
+    console.log('Query:', message)
 
-    const vectorStore = await PineconeStore.fromExistingIndex(queryEmbedding, {
-      index,
-      // Maximum number of batch requests to allow at once. Each batch is 1000 vectors.
-      maxConcurrency: 5,
-      // You can pass a namespace here too
-      // namespace: "foo",
-    });
+    // Generate embeddings using Pinecone's inference API
+    let embeddings
+    try {
+      embeddings = await pinecone.inference.embed(
+        'multilingual-e5-large',
+        [message],
+        { inputType: 'passage', truncate: 'END' }
+      )
+      console.log('Raw embeddings response:', JSON.stringify(embeddings, null, 2))
+    } catch (error) {
+      console.error('Error generating embeddings:', error)
+      return NextResponse.json({ error: 'Failed to generate embeddings', details: error.message }, { status: 500 })
+    }
+
+    // Validate and extract embeddings
+    if (!embeddings || !embeddings.data || !Array.isArray(embeddings.data) || embeddings.data.length === 0) {
+      console.error('Invalid embeddings format:', embeddings)
+      return NextResponse.json({ error: 'Invalid embeddings format', details: JSON.stringify(embeddings) }, { status: 500 })
+    }
+
+    const embeddingVector = embeddings.data[0].values
+    if (!Array.isArray(embeddingVector) || embeddingVector.length === 0) {
+      console.error('Invalid embedding vector:', embeddingVector)
+      return NextResponse.json({ error: 'Invalid embedding vector', details: JSON.stringify(embeddingVector) }, { status: 500 })
+    }
+
+    console.log('Valid embedding vector generated')
+
+    // Query the index with the generated embedding
+    let queryResponse
+    try {
+      queryResponse = await index.query({
+        vector: embeddingVector,
+        topK: 3,
+        includeMetadata: true,
+      })
+      console.log('Pinecone query response:', JSON.stringify(queryResponse, null, 2))
+    } catch (error) {
+      console.error('Error querying Pinecone:', error)
+      return NextResponse.json({ error: 'Failed to query Pinecone index', details: error.message }, { status: 500 })
+    }
+
+    if (!queryResponse.matches || !Array.isArray(queryResponse.matches) || queryResponse.matches.length === 0) {
+      return NextResponse.json({ error: 'No matching documents found' }, { status: 404 })
+    }
+
+    // Extract the relevant documents
+    const sourceDocuments = queryResponse.matches.map(match => ({
+      pageContent: match.metadata.text || '',
+      metadata: match.metadata || {},
+    }))
 
     const llmModel = new SambanovaLLM({
       apiKey: process.env.SAMBA_API,
-      temperature: temperature,
+      temperature: 0.1,
       maxTokens: 2000
-    });
-    // Query the index
-    const chain = await createCustomRetrievalChain(model, vectorStore);
+    })
 
-    // Get response
-    const response = await chain.invoke({
-      input: query
-    });
+    const prompt = PromptTemplate.fromTemplate(RESPONSE_SYSTEM_TEMPLATE)
 
-    // Extract source documents if available
-    const sourceDocuments = response.context?.map(doc => ({
-      pageContent: doc.pageContent,
-      metadata: doc.metadata
-    })) || [];
+    const chain = RunnableSequence.from([
+      {
+        context: (input) => input.context.map(doc => doc.pageContent).join('\n\n'),
+        question: (input) => input.question,
+      },
+      prompt,
+      llmModel,
+      new StringOutputParser(),
+    ])
+
+    let response
+    try {
+      response = await chain.invoke({
+        context: sourceDocuments,
+        question: message,
+      })
+    } catch (error) {
+      console.error('Error invoking LLM chain:', error)
+      return NextResponse.json({ error: 'Failed to generate response', details: error.message }, { status: 500 })
+    }
 
     return NextResponse.json({
-      answer: response.answer,
-      sources: sourceDocuments
-    });
-
-
+      answer: response,
+      sourceDocuments: sourceDocuments
+    })
 
   } catch (error) {
-    console.error('Error querying model:', error)
-    return NextResponse.json({ error: 'Failed to query model' }, { status: 500 })
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    })
+    return NextResponse.json({ 
+      error: 'Failed to query model',
+      details: error.message 
+    }, { status: 500 })
   }
 }
 
