@@ -1,5 +1,6 @@
 import  FileUpload  from '@/components/file-upload'
 import  ModelList  from '@/components/models'
+import URLParser from '@/components/test'
 
 export default function Home() {
   return (
@@ -16,6 +17,10 @@ export default function Home() {
         <div>
           <h2 className="text-xl font-semibold mb-2">Existing Models</h2>
           <ModelList />
+        </div>
+        <div>
+          <h2 className="text-xl font-semibold mb-2">Playground</h2>
+          <URLParser/>
         </div>
       </div>
       

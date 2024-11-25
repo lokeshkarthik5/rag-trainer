@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { useToast } from "@/hooks/use-toast"
 
 import {
@@ -15,14 +14,8 @@ import {
 } from "@/components/ui/table"
 
 const ModelList = () => {
-
   const { toast } = useToast()
   const [models, setModels] = useState([])
-  const [selectedModel, setSelectedModel] = useState(null)
-  const [query, setQuery] = useState('')
-  const [answer, setAnswer] = useState('')
-
-  
 
   useEffect(() => {
     fetchModels()
@@ -49,42 +42,34 @@ const ModelList = () => {
     }
   }
 
-  const handleModelSelect = (modelName) => {
-    setSelectedModel(modelName)
-    setQuery('')
-    setAnswer('')
-  }
-
-  const handleQuery = async () => {
-    if (!selectedModel || !query) return
-
+  const deleteModel = async (modelName) => {
     try {
-      const model = models.find(m => m.name === selectedModel)
-      if (!model) throw new Error('Model not found')
-
-      const response = await fetch(`/api/models/${model.name}/query`, {
-        method: 'POST',
-        headers: { 
+      const response = await fetch(`/api/deletion`, {
+        method: 'DELETE',
+        headers: {
           'Content-Type': 'application/json',
-          'x-api-key': model.apiKey
         },
-        body: JSON.stringify({ message: query }),
+        body: JSON.stringify({ modelName }),
       })
-
+  
       if (response.ok) {
-        const data = await response.json()
-        setAnswer(data.answer)
+        setModels(models.filter((model) => model.name !== modelName))
+        toast({
+          title: "Success",
+          description: `Model "${modelName}" has been deleted.`,
+        })
       } else {
-        throw new Error('Failed to query model')
+        throw new Error('Failed to delete model')
       }
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to query model.",
+        description: `Failed to delete model "${modelName}".`,
         variant: "destructive",
       })
     }
   }
+  
 
   return (
     <div className="space-y-4">
@@ -95,6 +80,7 @@ const ModelList = () => {
             <TableHead>API Key</TableHead>
             <TableHead>Endpoint</TableHead>
             <TableHead>LLM Model</TableHead>
+            <TableHead>Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -104,25 +90,18 @@ const ModelList = () => {
               <TableCell>{model.apiKey}</TableCell>
               <TableCell>{`/api/models/${model.name}/query`}</TableCell>
               <TableCell>{model.llmModel}</TableCell>
+              <TableCell>
+                <Button 
+                  variant="destructive" 
+                  onClick={() => deleteModel(model.name)}
+                >
+                  Delete
+                </Button>
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
-      <div className="space-y-2">
-        <Input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Enter your query"
-        />
-        <Button onClick={handleQuery}>Submit Query</Button>
-        {answer && (
-          <div className="mt-4">
-            <h3 className="font-semibold">Answer:</h3>
-            <p>{answer}</p>
-          </div>
-        )}
-      </div>
     </div>
   )
 }

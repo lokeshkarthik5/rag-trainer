@@ -13,7 +13,7 @@ const pinecone = new Pinecone({
 
 const RESPONSE_SYSTEM_TEMPLATE = `You are a helpful AI assistant. Your task is to answer questions based on the provided context.
 Follow these guidelines:
-- If the answer is in the context, provide it clearly and concisely
+- If the answer is in the context, provide it clearly ,concisely and in under 250 words
 - If the answer isn't in the context, say so politely
 - Use specific references from the documents when possible
 - Maintain a professional and helpful tone
@@ -28,18 +28,25 @@ Answer: `
 export async function POST(request, { params: { modelName } }) {
   try {
     const { message } = await request.json()
-    const apiKey = request.headers.get('x-api-key')
+    const apiKey = request.headers.get('authorization')?.split('Bearer ')[1];
 
     if (!message) {
+      console.log("Message is missing")
       return NextResponse.json({ error: 'Message is required' }, { status: 400 })
     }
 
-    // Validate API key
+    if(!apiKey){
+      console.log("apiKey is missing")
+      return NextResponse.json({ error: 'API Key is required' }, { status: 400 })
+    }
+
+    
     const model = await prisma.model.findUnique({
-      where: { name: modelName },
+      where: {apiKey },
     })
 
     if (!model || model.apiKey !== apiKey) {
+      console.log("api is missing")
       return NextResponse.json({ error: 'Invalid API key' }, { status: 401 })
     }
 
@@ -47,7 +54,7 @@ export async function POST(request, { params: { modelName } }) {
 
     console.log('Query:', message)
 
-    // Generate embeddings using Pinecone's inference API
+    
     let embeddings
     try {
       embeddings = await pinecone.inference.embed(
@@ -61,7 +68,7 @@ export async function POST(request, { params: { modelName } }) {
       return NextResponse.json({ error: 'Failed to generate embeddings', details: error.message }, { status: 500 })
     }
 
-    // Validate and extract embeddings
+    
     if (!embeddings || !embeddings.data || !Array.isArray(embeddings.data) || embeddings.data.length === 0) {
       console.error('Invalid embeddings format:', embeddings)
       return NextResponse.json({ error: 'Invalid embeddings format', details: JSON.stringify(embeddings) }, { status: 500 })
@@ -75,7 +82,7 @@ export async function POST(request, { params: { modelName } }) {
 
     console.log('Valid embedding vector generated')
 
-    // Query the index with the generated embedding
+ 
     let queryResponse
     try {
       queryResponse = await index.query({
@@ -130,7 +137,7 @@ export async function POST(request, { params: { modelName } }) {
 
     return NextResponse.json({
       answer: response,
-      sourceDocuments: sourceDocuments
+      
     })
 
   } catch (error) {

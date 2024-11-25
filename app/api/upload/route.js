@@ -2,40 +2,33 @@ import { NextResponse } from 'next/server'
 import { Pinecone } from '@pinecone-database/pinecone'
 import crypto from 'crypto'
 import { prisma } from '@/lib/prisma'
-
 import PDFParser from 'pdf2json'
+import * as cheerio from 'cheerio';
+import axios from 'axios'
 
 const pinecone = new Pinecone({
   apiKey: process.env.PINECONE_API_KEY,
 })
 
-  
-
 export async function POST(request) {
   try {
     const formData = await request.formData()
     const file = formData.get('file')
+    const url = formData.get('url')
     const modelName = formData.get('modelName')
-  
-  
     const llmModel = formData.get('llmModel')
+    const ingestionType = formData.get('ingestionType') // 'pdf' or 'url'
 
-    if (!file || !modelName) {
-      return NextResponse.json({ error: 'File and model name are required' }, { status: 400 })
+    // Validate input
+    if ((!file && !url) || !modelName) {
+      return NextResponse.json({ 
+        error: 'File or URL, and model name are required' 
+      }, { status: 400 })
     }
 
-    
-    if (file.type !== 'application/pdf') {
-      return NextResponse.json({ error: 'Only PDF files are currently supported' }, { status: 400 })
-    }
-
-    
-    
-    // Create a new index for the model if it doesn't exist
+    // Create a new index for the model
     const indexName = `rag-model-${modelName.toLowerCase().replace(/\s+/g, '-')}`
     const indexList = await pinecone.listIndexes()
-
-    // Ensure indexList is an array
     const indexListArray = Array.isArray(indexList) ? indexList : []
 
     if (!indexListArray.includes(indexName)) {
@@ -44,49 +37,107 @@ export async function POST(request) {
         dimension: 1024,
         metric: 'cosine',
         spec: { 
-            serverless: { 
-              cloud: 'aws', 
-              region: 'us-east-1' 
-            }
+          serverless: { 
+            cloud: 'aws', 
+            region: 'us-east-1' 
           }
+        }
       })
     }
 
-    
-    
-    // For PDF files, we need to use pdf-parse
-    const bytes = await file.arrayBuffer()
-    const buffer = Buffer.from(bytes)
-    
-
-    const pdfParser = new PDFParser()
-    
-    const text = await new Promise((resolve, reject) => {
-      pdfParser.on('pdfParser_dataReady', (pdfData) => {
-        const text = decodeURIComponent(pdfData.Pages.map(page => 
-          page.Texts.map(text => text.R.map(r => r.T).join('')).join(' ')
-        ).join('\n'))
-          .replace(/[^\w\s.,!?-]/g, '') 
-          .replace(/\s+/g, ' ')         
-          .trim()                       
-        resolve(text)
-      })
-      
-      pdfParser.on('pdfParser_dataError', reject)
-      pdfParser.parseBuffer(buffer)
-    })
-
-    
-    
-    
-    // Create docs array with extracted text
-    const docs = [{
-      pageContent: text,
-      metadata: {
-        source: file.name || `upload-${Date.now()}`
+    // Extract text based on ingestion type
+    let docs = [];
+    if (ingestionType === 'pdf') {
+      // PDF processing
+      if (file.type !== 'application/pdf') {
+        return NextResponse.json({ 
+          error: 'Only PDF files are currently supported' 
+        }, { status: 400 })
       }
-    }]
 
+      const bytes = await file.arrayBuffer()
+      const buffer = Buffer.from(bytes)
+
+      const pdfParser = new PDFParser()
+      
+      const text = await new Promise((resolve, reject) => {
+        pdfParser.on('pdfParser_dataReady', (pdfData) => {
+          const text = decodeURIComponent(pdfData.Pages.map(page => 
+            page.Texts.map(text => text.R.map(r => r.T).join('')).join(' ')
+          ).join('\n'))
+            .replace(/[^\w\s.,!?-]/g, '') 
+            .replace(/\s+/g, ' ')         
+            .trim()                       
+          resolve(text)
+        })
+        
+        pdfParser.on('pdfParser_dataError', reject)
+        pdfParser.parseBuffer(buffer)
+      })
+
+      docs = [{
+        pageContent: text,
+        metadata: {
+          source: file.name || `upload-${Date.now()}`
+        }
+      }]
+    } else if (ingestionType === 'url') {
+      // URL processing
+      if (!url) {
+        return NextResponse.json({ 
+          error: 'URL is required for URL ingestion' 
+        }, { status: 400 });
+      }
+    
+      try {
+        // Validate URL format
+        new URL(url);
+    
+        const response = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    
+        // Ensure content is HTML
+        if (!response.headers['content-type'].includes('text/html')) {
+          return NextResponse.json({ 
+            error: 'URL does not return valid HTML content' 
+          }, { status: 400 });
+        }
+    
+        const $ = cheerio.load(response.data);
+    
+        // Remove script, style, and other non-content tags
+        $('script, style, nav, footer, header').remove();
+    
+        // Extract main text content
+        const text = $('body').text()
+          .replace(/\s+/g, ' ')
+          .replace(/[^\w\s.,!?-]/g, '')
+          .trim();
+    
+        if (!text || text.length === 0) {
+          return NextResponse.json({ 
+            error: 'No content extracted from the URL' 
+          }, { status: 400 });
+        }
+    
+        docs = [{
+          pageContent: text,
+          metadata: { source: url }
+        }];
+      } catch (error) {
+        console.error('Error fetching or parsing URL:', error.message);
+        return NextResponse.json({ 
+          error: 'Failed to fetch or parse URL', 
+          details: error.message 
+        }, { status: 500 });
+      }
+    } else {
+      return NextResponse.json({ 
+        error: 'Invalid ingestion type. Must be "pdf" or "url"' 
+      }, { status: 400 });
+    }
+    
+
+    // Embedding and indexing
     const index = pinecone.Index(indexName)
     
     for (const doc of docs) {
@@ -96,17 +147,14 @@ export async function POST(request) {
         { inputType: 'passage', truncate: 'END' }
       )
       
-      console.log('Raw embeddings response:', embeddings)
-      
-      // Extract the values array from the embedding response
       const embedding = embeddings.data?.[0]?.values || embeddings[0]?.values
       
       if (!Array.isArray(embedding)) {
         throw new Error(`Invalid embedding format: ${JSON.stringify(embeddings)}`)
       }
       
-      // Truncate the text content to stay within metadata size limit (approximately 40KB)
-      const truncatedText = doc.pageContent.slice(0, 15000) // Reduced to 15000 chars to be extra safe
+      // Truncate text to stay within metadata size limit
+      const truncatedText = doc.pageContent.slice(0, 15000)
       
       const upsertPayload = {
         id: doc.metadata.source || `doc-${Date.now()}`,
@@ -116,12 +164,6 @@ export async function POST(request) {
           text: truncatedText,
           isTextTruncated: truncatedText.length < doc.pageContent.length
         }
-      }
-      
-      console.log('Upsert payload:', upsertPayload)
-      
-      if (!upsertPayload || !Array.isArray(upsertPayload.values)) {
-        throw new Error(`Invalid upsert payload: ${JSON.stringify(upsertPayload)}`)
       }
       
       await index.upsert([upsertPayload])
@@ -141,16 +183,16 @@ export async function POST(request) {
     })
 
     return NextResponse.json({ 
-      message: 'File uploaded and model created successfully',
+      message: 'Document uploaded and model created successfully',
       modelName: model.name,
       apiKey: model.apiKey
     })
-
           
-    
   } catch (error) {
-    console.error('Error processing file:', error)
-    return NextResponse.json({ error: 'Failed to process file' }, { status: 500 })
+    console.error('Error processing document:', error)
+    return NextResponse.json({ 
+      error: 'Failed to process document', 
+      details: error.message 
+    }, { status: 500 })
   }
 }
-
